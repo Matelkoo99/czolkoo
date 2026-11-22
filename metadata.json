@@ -1,0 +1,11 @@
+{
+  "name": "Czółko — Gra z Kamerkami",
+  "description": "Wieloosobowa gra imprezowa Czółko (Kim Jestem?) z kamerkami na żywo, losowymi kategoriami haseł i ręcznym wpisywaniem haseł innym graczom.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
