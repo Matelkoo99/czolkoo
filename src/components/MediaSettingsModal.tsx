@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import {
   Camera,
   CameraOff,
+  Headphones,
   Mic,
   MicOff,
   RefreshCw,
@@ -17,6 +18,7 @@ interface MediaSettingsModalProps {
   localStream: MediaStream | null;
   cameraOn: boolean;
   micOn: boolean;
+  micLoopback: boolean;
   localAudioLevel: number;
   mediaError: string | null;
   isRequestingMedia: boolean;
@@ -29,6 +31,7 @@ interface MediaSettingsModalProps {
   onClose: () => void;
   onToggleCamera: () => void;
   onToggleMic: () => void;
+  onToggleMicLoopback: (enabled: boolean) => void;
   onSwitchCamera: (deviceId: string) => void;
   onSwitchMicrophone: (deviceId: string) => void;
   onSwitchAudioOutput: (deviceId: string) => void;
@@ -42,6 +45,7 @@ export function MediaSettingsModal({
   localStream,
   cameraOn,
   micOn,
+  micLoopback,
   localAudioLevel,
   mediaError,
   isRequestingMedia,
@@ -54,6 +58,7 @@ export function MediaSettingsModal({
   onClose,
   onToggleCamera,
   onToggleMic,
+  onToggleMicLoopback,
   onSwitchCamera,
   onSwitchMicrophone,
   onSwitchAudioOutput,
@@ -63,9 +68,12 @@ export function MediaSettingsModal({
   const previewRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      onToggleMicLoopback(false);
+      return;
+    }
     onRefreshDevices();
-  }, [open, onRefreshDevices]);
+  }, [open, onRefreshDevices, onToggleMicLoopback]);
 
   useEffect(() => {
     const el = previewRef.current;
@@ -98,7 +106,7 @@ export function MediaSettingsModal({
               Opcje kamery i mikrofonu
             </h2>
             <p className="mt-1 text-xs text-slate-400">
-              Wybierz urządzenia wejścia/wyjścia i sprawdź podgląd oraz poziom głosu.
+              Wybierz kamerę, mikrofon oraz głośniki i przetestuj obraz oraz dźwięk.
             </p>
           </div>
           <button
@@ -161,7 +169,7 @@ export function MediaSettingsModal({
               </button>
             </div>
 
-            {/* Live Mic Level Meter */}
+            {/* Live Mic Level Meter + Self-Listen Toggle */}
             <div className="rounded-xl border border-white/8 bg-[#10131A] p-3">
               <div className="flex items-center justify-between text-xs mb-2">
                 <span className="font-medium text-slate-300">Poziom mikrofonu</span>
@@ -174,20 +182,36 @@ export function MediaSettingsModal({
                   className={`h-full rounded-full transition-all duration-75 ${
                     localAudioLevel > 65
                       ? 'bg-amber-400'
-                      : localAudioLevel > 8
+                      : localAudioLevel > 6
                         ? 'bg-emerald-400'
                         : 'bg-slate-600'
                   }`}
                   style={{ width: `${micOn ? Math.max(4, localAudioLevel) : 0}%` }}
                 />
               </div>
-              <p className="mt-1.5 text-[11px] text-slate-400">
-                {!micOn
-                  ? 'Włącz mikrofon, aby sprawdzić, czy Cię słychać.'
-                  : localAudioLevel > 10
-                    ? 'Mikrofon odbiera Twój głos prawidłowo.'
-                    : 'Powiedz coś — pasek powinien się poruszyć.'}
-              </p>
+              <div className="mt-2.5 flex items-center justify-between gap-2">
+                <span className="text-[11px] text-slate-400">
+                  {!micOn
+                    ? 'Włącz mikrofon, aby mówić'
+                    : localAudioLevel > 8
+                      ? 'Mikrofon działa poprawnie'
+                      : 'Powiedz coś do mikrofonu'}
+                </span>
+                {micOn && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleMicLoopback(!micLoopback)}
+                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                      micLoopback
+                        ? 'border-amber-400 bg-amber-500/20 text-amber-200'
+                        : 'border-white/12 bg-white/5 text-slate-300 hover:bg-white/10'
+                    }`}
+                  >
+                    <Headphones className="h-3 w-3" />
+                    {micLoopback ? 'Wyłącz odsłuch' : 'Usłysz siebie'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -289,7 +313,7 @@ export function MediaSettingsModal({
               className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/12 bg-[#10131A] px-3 text-xs font-medium text-slate-200 hover:bg-white/10 transition-colors cursor-pointer whitespace-nowrap"
             >
               <Volume2 className="h-3.5 w-3.5" />
-              Test dźwięku
+              Test głośników
             </button>
 
             {inRoom && onReconnectPeers && (
@@ -299,7 +323,7 @@ export function MediaSettingsModal({
                 className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 text-xs font-semibold text-amber-200 hover:bg-amber-500/20 transition-colors cursor-pointer whitespace-nowrap"
               >
                 <Wifi className="h-3.5 w-3.5" />
-                Połącz ponownie kamerki
+                Odśwież połączenie
               </button>
             )}
           </div>

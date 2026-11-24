@@ -25,16 +25,28 @@ export default function App() {
     rtcForwardRef.current?.(msg);
   }, []);
 
-  const { connected, playerId, room, error, clearError, send, leaveRoom } =
-    useGameSocket(forwardRtcSignal);
+  const {
+    connected,
+    playerId,
+    room,
+    error,
+    clearError,
+    send,
+    getBufferedAmount,
+    leaveRoom,
+  } = useGameSocket(forwardRtcSignal);
 
   const peerIds = useMemo(() => (room ? room.players.map((p) => p.id) : []), [room]);
 
   const {
     localStream,
     remoteStreams,
+    remoteFrames,
+    remoteSpeaking,
     cameraOn,
     micOn,
+    micLoopback,
+    setMicLoopback,
     mediaError,
     isRequestingMedia,
     localSpeaking,
@@ -46,6 +58,8 @@ export default function App() {
     selectedAudioId,
     selectedAudioOutputId,
     refreshDevices,
+    enableBothMedia,
+    ensureMediaForRoom,
     toggleCamera,
     toggleMic,
     switchCameraDevice,
@@ -57,6 +71,7 @@ export default function App() {
     myPlayerId: playerId,
     peerIds,
     send,
+    getBufferedAmount,
   });
 
   useEffect(() => {
@@ -74,17 +89,32 @@ export default function App() {
   }, [room?.code]);
 
   const handleCreateRoom = useCallback(
-    (name: string) => {
-      send({ type: 'room:create', name, cameraOn, micOn });
+    async (name: string, borderColor: string) => {
+      const state = await ensureMediaForRoom();
+      send({
+        type: 'room:create',
+        name,
+        cameraOn: state.cameraOn,
+        micOn: state.micOn,
+        borderColor,
+      });
     },
-    [send, cameraOn, micOn],
+    [ensureMediaForRoom, send],
   );
 
   const handleJoinRoom = useCallback(
-    (code: string, name: string) => {
-      send({ type: 'room:join', code, name, cameraOn, micOn });
+    async (code: string, name: string, borderColor: string) => {
+      const state = await ensureMediaForRoom();
+      send({
+        type: 'room:join',
+        code,
+        name,
+        cameraOn: state.cameraOn,
+        micOn: state.micOn,
+        borderColor,
+      });
     },
-    [send, cameraOn, micOn],
+    [ensureMediaForRoom, send],
   );
 
   return (
@@ -95,11 +125,12 @@ export default function App() {
           myPlayerId={playerId}
           localStream={localStream}
           remoteStreams={remoteStreams}
+          remoteFrames={remoteFrames}
+          remoteSpeaking={remoteSpeaking}
           cameraOn={cameraOn}
           micOn={micOn}
           localSpeaking={localSpeaking}
           mediaError={mediaError}
-          audioOutputId={selectedAudioOutputId}
           roomError={error}
           onClearRoomError={clearError}
           onToggleCamera={toggleCamera}
@@ -121,6 +152,7 @@ export default function App() {
           isRequestingMedia={isRequestingMedia}
           onToggleCamera={toggleCamera}
           onToggleMic={toggleMic}
+          onEnableBothMedia={enableBothMedia}
           onOpenMediaSettings={() => setMediaSettingsOpen(true)}
           onCreateRoom={handleCreateRoom}
           onJoinRoom={handleJoinRoom}
@@ -134,6 +166,7 @@ export default function App() {
         localStream={localStream}
         cameraOn={cameraOn}
         micOn={micOn}
+        micLoopback={micLoopback}
         localAudioLevel={localAudioLevel}
         mediaError={mediaError}
         isRequestingMedia={isRequestingMedia}
@@ -146,6 +179,7 @@ export default function App() {
         onClose={() => setMediaSettingsOpen(false)}
         onToggleCamera={toggleCamera}
         onToggleMic={toggleMic}
+        onToggleMicLoopback={setMicLoopback}
         onSwitchCamera={switchCameraDevice}
         onSwitchMicrophone={switchMicrophoneDevice}
         onSwitchAudioOutput={switchAudioOutputDevice}

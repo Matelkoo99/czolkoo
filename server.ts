@@ -4,31 +4,30 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
-import type {
-  ClientMessage,
-  GamePhase,
-  PlayerReaction,
-  RoomEventItem,
-  RoomPlayerView,
-  RoomSettings,
-  RoomStateView,
-  ServerMessage,
+import {
+  PLAYER_BORDER_COLORS,
+  type ClientMessage,
+  type GamePhase,
+  type PlayerReaction,
+  type RoomEventItem,
+  type RoomPlayerView,
+  type RoomSettings,
+  type RoomStateView,
+  type ServerMessage,
 } from './src/shared/types.ts';
 import { DEFAULT_CATEGORY_IDS, pickRandomWord } from './src/shared/words.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const AVATAR_COLORS = [
-  '#F59E0B',
-  '#10B981',
-  '#3B82F6',
-  '#EC4899',
-  '#8B5CF6',
-  '#EF4444',
-  '#14B8A6',
-  '#F97316',
-];
+const AVATAR_COLORS = PLAYER_BORDER_COLORS.map((c) => c.hex);
+
+function sanitizeBorderColor(color: string | undefined, fallbackIdx: number): string {
+  if (color && AVATAR_COLORS.includes(color as (typeof AVATAR_COLORS)[number])) {
+    return color;
+  }
+  return AVATAR_COLORS[fallbackIdx % AVATAR_COLORS.length];
+}
 
 interface InternalPlayer {
   id: string;
@@ -46,6 +45,8 @@ interface InternalPlayer {
   revealed: boolean;
   cameraOn: boolean;
   micOn: boolean;
+  reactionsDisabled: boolean;
+  lastFrame: string | null;
   lastReaction: PlayerReaction | null;
   ws: WebSocket;
 }
@@ -138,6 +139,7 @@ function serializeRoomForPlayer(room: InternalRoom, recipientId: string): RoomSt
       revealed: p.revealed,
       cameraOn: p.cameraOn,
       micOn: p.micOn,
+      reactionsDisabled: p.reactionsDisabled,
       lastReaction: p.lastReaction,
     };
   });
@@ -249,7 +251,7 @@ function handleMessage(ws: WebSocket, raw: string) {
     const player: InternalPlayer = {
       id: playerId,
       name,
-      avatarColor: AVATAR_COLORS[0],
+      avatarColor: sanitizeBorderColor(msg.borderColor, 0),
       isPlaying: true,
       score: 0,
       word: null,
@@ -262,6 +264,8 @@ function handleMessage(ws: WebSocket, raw: string) {
       revealed: false,
       cameraOn: Boolean(msg.cameraOn),
       micOn: Boolean(msg.micOn),
+      reactionsDisabled: false,
+      lastFrame: null,
       lastReaction: null,
       ws,
     };
@@ -275,6 +279,8 @@ function handleMessage(ws: WebSocket, raw: string) {
         wordMode: 'RANDOM',
         categories: [...DEFAULT_CATEGORY_IDS],
         turnSeconds: 0,
+        turnAnimations: true,
+        spotlightLayout: 'TOP',
       },
       players: [player],
       activeTurnPlayerId: null,
@@ -319,7 +325,7 @@ function handleMessage(ws: WebSocket, raw: string) {
     const player: InternalPlayer = {
       id: playerId,
       name,
-      avatarColor: AVATAR_COLORS[room.players.length % AVATAR_COLORS.length],
+      avatarColor: sanitizeBorderColor(msg.borderColor, room.players.length),
       isPlaying: room.phase === 'LOBBY',
       score: 0,
       word: null,
@@ -332,6 +338,8 @@ function handleMessage(ws: WebSocket, raw: string) {
       revealed: false,
       cameraOn: Boolean(msg.cameraOn),
       micOn: Boolean(msg.micOn),
+      reactionsDisabled: false,
+      lastFrame: null,
       lastReaction: null,
       ws,
     };
@@ -352,6 +360,17 @@ function handleMessage(ws: WebSocket, raw: string) {
       room: serializeRoomForPlayer(room, playerId),
     });
     broadcastRoomState(room);
+
+    // Immediately send latest cached camera frames of existing players to the newcomer
+    for (const existing of room.players) {
+      if (existing.id !== playerId && existing.cameraOn && existing.lastFrame) {
+        sendJson(ws, {
+          type: 'media:video',
+          fromPlayerId: existing.id,
+          frame: existing.lastFrame,
+        });
+      }
+    }
     return;
   }
 
@@ -388,9 +407,93 @@ function handleMessage(ws: WebSocket, raw: string) {
     return;
   }
 
+  if (msg.type === 'media:video') {
+    if (typeof msg.frame !== 'string' || msg.frame.length > 140_000) return;
+    sender.lastFrame = msg.frame;
+    if (!sender.cameraOn) {
+      sender.cameraOn = true;
+      broadcastRoomState(room);
+    }
+    const payload = JSON.stringify({
+      type: 'media:video',
+      fromPlayerId: sender.id,
+      frame: msg.frame,
+    } satisfies ServerMessage);
+    for (const peer of room.players) {
+      if (
+        peer.id !== sender.id &&
+        peer.ws.readyState === WebSocket.OPEN &&
+        peer.ws.bufferedAmount < 512 * 1024
+      ) {
+        peer.ws.send(payload);
+      }
+    }
+    return;
+  }
+
+  if (msg.type === 'media:audio') {
+    if (typeof msg.pcm !== 'string' || msg.pcm.length > 64_000) return;
+    const sampleRate =
+      typeof msg.sampleRate === 'number' && msg.sampleRate >= 8000 && msg.sampleRate <= 48000
+        ? msg.sampleRate
+        : 16000;
+    if (!sender.micOn) {
+      sender.micOn = true;
+      broadcastRoomState(room);
+    }
+    const payload = JSON.stringify({
+      type: 'media:audio',
+      fromPlayerId: sender.id,
+      pcm: msg.pcm,
+      sampleRate,
+    } satisfies ServerMessage);
+    for (const peer of room.players) {
+      if (
+        peer.id !== sender.id &&
+        peer.ws.readyState === WebSocket.OPEN &&
+        peer.ws.bufferedAmount < 512 * 1024
+      ) {
+        peer.ws.send(payload);
+      }
+    }
+    return;
+  }
+
   if (msg.type === 'player:media') {
-    sender.cameraOn = Boolean(msg.cameraOn);
-    sender.micOn = Boolean(msg.micOn);
+    const nextCam = Boolean(msg.cameraOn);
+    const nextMic = Boolean(msg.micOn);
+    if (!nextCam) {
+      sender.lastFrame = null;
+    }
+    if (sender.cameraOn !== nextCam || sender.micOn !== nextMic) {
+      sender.cameraOn = nextCam;
+      sender.micOn = nextMic;
+      broadcastRoomState(room);
+    }
+    return;
+  }
+
+  if (msg.type === 'player:setBorderColor') {
+    sender.avatarColor = sanitizeBorderColor(msg.color, 0);
+    broadcastRoomState(room);
+    return;
+  }
+
+  if (msg.type === 'player:toggleReactionsBlocked') {
+    if (room.hostId !== sender.id) return;
+    const target = room.players.find((p) => p.id === msg.targetPlayerId);
+    if (!target) return;
+    target.reactionsDisabled = !target.reactionsDisabled;
+    if (target.reactionsDisabled) {
+      target.lastReaction = null;
+    }
+    addEvent(
+      room,
+      'system',
+      target.reactionsDisabled
+        ? `Host wyłączył szybkie komendy (TAK/NIE) graczowi ${target.name}.`
+        : `Host włączył z powrotem szybkie komendy (TAK/NIE) graczowi ${target.name}.`,
+    );
     broadcastRoomState(room);
     return;
   }
@@ -430,6 +533,12 @@ function handleMessage(ws: WebSocket, raw: string) {
     }
     if (typeof msg.settings.turnSeconds === 'number' && [0, 30, 60, 90].includes(msg.settings.turnSeconds)) {
       room.settings.turnSeconds = msg.settings.turnSeconds;
+    }
+    if (typeof msg.settings.turnAnimations === 'boolean') {
+      room.settings.turnAnimations = msg.settings.turnAnimations;
+    }
+    if (msg.settings.spotlightLayout === 'TOP' || msg.settings.spotlightLayout === 'TOP_LEFT') {
+      room.settings.spotlightLayout = msg.settings.spotlightLayout;
     }
     broadcastRoomState(room);
     return;
@@ -671,6 +780,13 @@ function handleMessage(ws: WebSocket, raw: string) {
   }
 
   if (msg.type === 'game:react') {
+    if (sender.reactionsDisabled) {
+      sendJson(ws, {
+        type: 'room:error',
+        message: 'Host wyłączył Ci możliwość wysyłania szybkich komend (TAK / NIE).',
+      });
+      return;
+    }
     const allowed = new Set(['TAK', 'NIE', 'BLISKO', 'NIE_WIEM']);
     if (!allowed.has(msg.reaction)) return;
     sender.lastReaction = { type: msg.reaction, at: Date.now() };

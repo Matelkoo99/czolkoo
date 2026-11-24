@@ -45,6 +45,63 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
+/* Animated flowing border ("płynięcie obramówki") in player's custom color */
+@keyframes borderFlowSpin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.turn-flowing-frame {
+  position: relative;
+  border-color: transparent !important;
+  box-shadow:
+    0 0 22px -2px var(--player-border-color, #F59E0B),
+    0 10px 25px -6px rgba(0, 0, 0, 0.7);
+}
+
+.turn-flowing-ring {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  border-radius: inherit;
+  padding: 3px;
+  overflow: hidden;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.turn-flowing-ring::before {
+  content: "";
+  position: absolute;
+  inset: -120%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    var(--player-border-color, #F59E0B) 22%,
+    #ffffff 32%,
+    var(--player-border-color, #F59E0B) 44%,
+    transparent 62%,
+    var(--player-border-color, #F59E0B) 88%,
+    #ffffff 96%,
+    var(--player-border-color, #F59E0B) 100%
+  );
+  animation: borderFlowSpin 2.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-flowing-ring::before {
+    animation: none;
+  }
+}
+
 /* Subtle custom scrollbars for dark studio panels */
 ::-webkit-scrollbar {
   width: 6px;

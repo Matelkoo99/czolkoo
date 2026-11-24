@@ -11,6 +11,7 @@ import {
   Users,
   Video,
 } from 'lucide-react';
+import { PLAYER_BORDER_COLORS } from '../shared/types.ts';
 import { WORD_CATEGORIES } from '../shared/words.ts';
 
 interface LandingScreenProps {
@@ -25,9 +26,10 @@ interface LandingScreenProps {
   isRequestingMedia: boolean;
   onToggleCamera: () => void;
   onToggleMic: () => void;
+  onEnableBothMedia: () => void;
   onOpenMediaSettings: () => void;
-  onCreateRoom: (name: string) => void;
-  onJoinRoom: (code: string, name: string) => void;
+  onCreateRoom: (name: string, borderColor: string) => void;
+  onJoinRoom: (code: string, name: string, borderColor: string) => void;
   onClearError: () => void;
 }
 
@@ -51,6 +53,7 @@ export function LandingScreen({
   isRequestingMedia,
   onToggleCamera,
   onToggleMic,
+  onEnableBothMedia,
   onOpenMediaSettings,
   onCreateRoom,
   onJoinRoom,
@@ -59,6 +62,7 @@ export function LandingScreen({
   const [mode, setMode] = useState<'create' | 'join'>(initialRoomCode ? 'join' : 'create');
   const [name, setName] = useState('');
   const [roomCode, setRoomCode] = useState(initialRoomCode);
+  const [borderColor, setBorderColor] = useState<string>(PLAYER_BORDER_COLORS[0].hex);
   const [demoIdx, setDemoIdx] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -78,11 +82,11 @@ export function LandingScreen({
     e.preventDefault();
     const cleanName = name.trim() || 'Gracz';
     if (mode === 'create') {
-      onCreateRoom(cleanName);
+      onCreateRoom(cleanName, borderColor);
     } else {
       const cleanCode = roomCode.trim().toUpperCase();
       if (!cleanCode) return;
-      onJoinRoom(cleanCode, cleanName);
+      onJoinRoom(cleanCode, cleanName, borderColor);
     }
   };
 
@@ -234,6 +238,78 @@ export function LandingScreen({
                     </div>
                   )}
 
+                  {/* Player custom border color picker */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-semibold text-slate-300">
+                        Twój kolor obramówki (podświetlenie tury)
+                      </span>
+                      <span
+                        className="text-xs font-semibold"
+                        style={{ color: borderColor }}
+                      >
+                        {PLAYER_BORDER_COLORS.find((c) => c.hex === borderColor)?.name ?? 'Własny'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {PLAYER_BORDER_COLORS.map((c) => {
+                        const active = c.hex === borderColor;
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => setBorderColor(c.hex)}
+                            title={c.name}
+                            aria-label={`Kolor obramówki: ${c.name}`}
+                            className={`h-9 w-9 rounded-full border-2 transition-transform cursor-pointer ${
+                              active ? 'scale-110 border-white shadow-md' : 'border-transparent opacity-75 hover:opacity-100'
+                            }`}
+                            style={{
+                              backgroundColor: c.hex,
+                              boxShadow: active ? `0 0 14px ${c.hex}` : undefined,
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Player custom border color picker */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-semibold text-slate-300">
+                        Twój kolor obramówki (podświetlenie tury)
+                      </span>
+                      <span
+                        className="text-xs font-semibold"
+                        style={{ color: borderColor }}
+                      >
+                        {PLAYER_BORDER_COLORS.find((c) => c.hex === borderColor)?.name ?? 'Własny'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {PLAYER_BORDER_COLORS.map((c) => {
+                        const active = c.hex === borderColor;
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => setBorderColor(c.hex)}
+                            title={c.name}
+                            aria-label={`Kolor obramówki: ${c.name}`}
+                            className={`h-9 w-9 rounded-full border-2 transition-transform cursor-pointer ${
+                              active ? 'scale-110 border-white shadow-md' : 'border-transparent opacity-75 hover:opacity-100'
+                            }`}
+                            style={{
+                              backgroundColor: c.hex,
+                              boxShadow: active ? `0 0 14px ${c.hex}` : undefined,
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {error && (
                     <div
                       role="alert"
@@ -279,8 +355,12 @@ export function LandingScreen({
                 </button>
               </div>
 
-              {/* Live preview frame */}
-              <div className="relative flex-1 min-h-[260px] overflow-hidden rounded-xl border border-white/10 bg-[#0F1115]">
+              {/* Live preview frame with animated flowing player border */}
+              <div
+                className="turn-flowing-frame relative flex-1 min-h-[260px] overflow-hidden rounded-xl border bg-[#0F1115]"
+                style={{ '--player-border-color': borderColor } as React.CSSProperties}
+              >
+                <div aria-hidden="true" className="turn-flowing-ring" />
                 {localStream && cameraOn ? (
                   <video
                     ref={videoRef}
@@ -290,17 +370,26 @@ export function LandingScreen({
                     className="h-full w-full object-cover scale-x-[-1]"
                   />
                 ) : (
-                  <div className="flex h-full min-h-[260px] w-full flex-col items-center justify-center px-6 text-center">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#1F2532] text-slate-300">
-                      <Video className="h-7 w-7" />
+                  <div className="flex h-full min-h-[260px] w-full flex-col items-center justify-center px-6 pt-12 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#1F2532] text-slate-300">
+                      <Video className="h-6 w-6" />
                     </div>
-                    <p className="mt-4 text-sm font-medium text-slate-200">
+                    <p className="mt-3 text-sm font-medium text-slate-200">
                       Kamera jest obecnie wyłączona
                     </p>
                     <p className="mt-1 max-w-xs text-xs text-slate-400">
-                      Kliknij „Włącz kamerę” poniżej, aby przetestować podgląd. Możesz też grać
-                      samym mikrofonem.
+                      Włącz kamerę i mikrofon tutaj albo od razu wejdź do pokoju — gra poprosi o
+                      dostęp automatycznie.
                     </p>
+                    <button
+                      type="button"
+                      disabled={isRequestingMedia}
+                      onClick={onEnableBothMedia}
+                      className="mt-3 inline-flex h-9 items-center gap-2 rounded-lg bg-amber-500 px-4 text-xs font-bold text-slate-950 hover:bg-amber-400 transition-colors cursor-pointer"
+                    >
+                      <Camera className="h-3.5 w-3.5" />
+                      Włącz kamerę i mikrofon
+                    </button>
                   </div>
                 )}
 

@@ -3,7 +3,18 @@ import type { ClientMessage, RoomStateView, ServerMessage } from '../shared/type
 import { soundEngine } from '../utils/sound.ts';
 
 export type RtcSignalHandler = (
-  msg: Extract<ServerMessage, { type: 'rtc:offer' | 'rtc:answer' | 'rtc:ice' | 'rtc:reset' }>,
+  msg: Extract<
+    ServerMessage,
+    {
+      type:
+        | 'rtc:offer'
+        | 'rtc:answer'
+        | 'rtc:ice'
+        | 'rtc:reset'
+        | 'media:video'
+        | 'media:audio';
+    }
+  >,
 ) => void;
 
 export function useGameSocket(onRtcSignal?: RtcSignalHandler) {
@@ -56,7 +67,9 @@ export function useGameSocket(onRtcSignal?: RtcSignalHandler) {
         msg.type === 'rtc:offer' ||
         msg.type === 'rtc:answer' ||
         msg.type === 'rtc:ice' ||
-        msg.type === 'rtc:reset'
+        msg.type === 'rtc:reset' ||
+        msg.type === 'media:video' ||
+        msg.type === 'media:audio'
       ) {
         rtcHandlerRef.current?.(msg);
         return;
@@ -97,7 +110,6 @@ export function useGameSocket(onRtcSignal?: RtcSignalHandler) {
             soundEngine.playSolved();
           }
 
-          // Check for new reaction
           for (const p of next.players) {
             const oldP = prev.players.find((x) => x.id === p.id);
             if (p.lastReaction && (!oldP?.lastReaction || oldP.lastReaction.at !== p.lastReaction.at)) {
@@ -141,15 +153,25 @@ export function useGameSocket(onRtcSignal?: RtcSignalHandler) {
     };
   }, [connect]);
 
-  const send = useCallback((msg: ClientMessage) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(msg));
-    } else {
-      pendingQueueRef.current.push(msg);
-      connect();
-    }
-  }, [connect]);
+  const send = useCallback(
+    (msg: ClientMessage) => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msg));
+      } else {
+        // Don't buffer volatile media chunks when offline
+        if (msg.type !== 'media:video' && msg.type !== 'media:audio') {
+          pendingQueueRef.current.push(msg);
+        }
+        connect();
+      }
+    },
+    [connect],
+  );
+
+  const getBufferedAmount = useCallback(() => {
+    return wsRef.current?.bufferedAmount ?? 0;
+  }, []);
 
   const leaveRoom = useCallback(() => {
     send({ type: 'room:leave' });
@@ -157,7 +179,6 @@ export function useGameSocket(onRtcSignal?: RtcSignalHandler) {
     setPlayerId(null);
     prevRoomRef.current = null;
     setError(null);
-    // Clean room query param from URL
     const url = new URL(window.location.href);
     if (url.searchParams.has('room')) {
       url.searchParams.delete('room');
@@ -174,6 +195,7 @@ export function useGameSocket(onRtcSignal?: RtcSignalHandler) {
     error,
     clearError,
     send,
+    getBufferedAmount,
     leaveRoom,
   };
 }
